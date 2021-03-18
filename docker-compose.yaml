@@ -23,3 +23,7 @@ services:
       - "3000:3000"
     volumes:
       - "./grafana:/etc/grafana"
+  app:
+    build: "."
+    ports:
+      - "8080:8080"
