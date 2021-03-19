@@ -22,15 +22,16 @@ and generates random request metrics.
 
 ## Usage
 
-Start the Docker Compose.
+Start Docker Compose.
 
     make up
 
-Stop the Docker Compose.
+Stop the containers started by Docker Compose and remove all the Docker
+resources previously created (containers, networks, etc.).
 
     make down
 
 Build the sample application. This is only necessary if you change the sample
-application and want to re-package it before starting the Docker Compose.
+application and want to re-package it before starting Docker Compose.
 
     make build
