@@ -30,10 +30,12 @@ func main() {
 		mu          sync.RWMutex
 		maxDuration = 10.0
 		errorsRatio = 0.1
+		requestRate = 1.0
 	)
 
 	log.Printf("using max duration %v", maxDuration)
 	log.Printf("using errors ratio %v", errorsRatio)
+	log.Printf("using request rate %v", requestRate)
 
 	go func() {
 		for {
@@ -41,6 +43,7 @@ func main() {
 
 			maxDurationValue := maxDuration
 			errorsRatioValue := errorsRatio
+			requestRateValue := requestRate
 
 			mu.RUnlock()
 
@@ -56,9 +59,9 @@ func main() {
 				requestErrorsCount.Inc()
 			}
 
-			// Simulate a rate of about 1 req/s.
+			// Simulate the configured request rate.
 
-			time.Sleep(time.Second)
+			time.Sleep(time.Duration(float64(time.Second) / requestRateValue))
 		}
 	}()
 
@@ -98,6 +101,18 @@ func main() {
 			return
 		}
 
+		requestRateValue, hasRequestRateValue, err := floatValue(r, "requestRate")
+		if err != nil {
+			log.Printf("error: parse request rate value: %v", err)
+			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		}
+		if hasRequestRateValue && requestRateValue <= 0 {
+			log.Printf("error: invalid request rate value '%v'", requestRateValue)
+			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		}
+
 		mu.Lock()
 
 		if hasMaxDurationValue {
@@ -108,6 +123,11 @@ func main() {
 		if hasErrorsRatioValue {
 			log.Printf("setting errors ratio to %v", errorsRatioValue)
 			errorsRatio = errorsRatioValue
+		}
+
+		if hasRequestRateValue {
+			log.Printf("setting request rate to %v", requestRateValue)
+			requestRate = requestRateValue
 		}
 
 		mu.Unlock()
