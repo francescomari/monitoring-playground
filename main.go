@@ -1,7 +1,10 @@
 package main
 
 import (
+	"context"
 	"flag"
+	"fmt"
+	"io"
 	"log"
 	"math/rand"
 	"net/http"
@@ -14,21 +17,16 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-var requestDuration = promauto.NewHistogram(prometheus.HistogramOpts{
-	Name: "app_request_duration_seconds",
-	Help: "Request duration in seconds",
-})
-
-var requestErrorsCount = promauto.NewCounter(prometheus.CounterOpts{
-	Name: "app_request_errors_count",
-	Help: "Number of errors observed in requests",
-})
-
 func main() {
+	if err := run(); err != nil {
+		log.Fatalf("error: %v", err)
+	}
+}
+
+func run() error {
 	rand.Seed(time.Now().Unix())
 
 	var (
-		mu               sync.RWMutex
 		maxDuration      int
 		errorsPercentage int
 		requestRate      int
@@ -39,132 +37,159 @@ func main() {
 	flag.IntVar(&requestRate, "request-rate", 1, "How many requests per seconds to simulate")
 	flag.Parse()
 
-	if maxDuration <= 0 {
-		log.Fatalf("invalid max duration %v", maxDuration)
+	var config config
+
+	if err := config.SetMaxDuration(maxDuration); err != nil {
+		return fmt.Errorf("set max duration: %v", err)
 	}
 
-	if errorsPercentage < 0 || errorsPercentage > 100 {
-		log.Fatalf("invalid errors percentage %v", errorsPercentage)
+	if err := config.SetErrorsPercentage(errorsPercentage); err != nil {
+		return fmt.Errorf("set errors percentage: %v", err)
 	}
 
-	if requestRate <= 0 {
-		log.Fatalf("invalid request rate %v", requestRate)
+	if err := config.SetRequestRate(requestRate); err != nil {
+		return fmt.Errorf("set request rate: %v", err)
 	}
 
 	log.Printf("using max duration %v", maxDuration)
 	log.Printf("using errors percentage %v", errorsPercentage)
 	log.Printf("using request rate %v", requestRate)
 
-	go func() {
-		for {
-			mu.RLock()
+	go simulateRequests(context.Background(), &config)
 
-			maxDurationValue := maxDuration
-			errorsPercentageValue := errorsPercentage
-			requestRateValue := requestRate
+	http.HandleFunc("/-/health", healthHandler)
+	http.HandleFunc("/-/config/max-duration", setConfigHandler(config.SetMaxDuration))
+	http.HandleFunc("/-/config/errors-percentage", setConfigHandler(config.SetErrorsPercentage))
+	http.HandleFunc("/-/config/request-rate", setConfigHandler(config.SetRequestRate))
+	http.Handle("/metrics", promhttp.Handler())
 
-			mu.RUnlock()
+	return http.ListenAndServe(":8080", nil)
+}
 
-			// Observe a request that took a random amount of time between (0,
-			// N) seconds. The default for N is 10s, which fits the highest
-			// bucket defined by default by a Prometheus histogram.
+func simulateRequests(ctx context.Context, config *config) error {
+	requestDuration := promauto.NewHistogram(prometheus.HistogramOpts{
+		Name: "metrics_generator_request_duration_seconds",
+		Help: "Request duration in seconds",
+	})
 
-			requestDuration.Observe(float64(rand.Intn(maxDurationValue)))
+	requestErrorsCount := promauto.NewCounter(prometheus.CounterOpts{
+		Name: "metrics_generator_request_errors_count",
+		Help: "Number of errors observed in requests",
+	})
 
-			// Simulate the failure of a certain percentage of the requests.
+	for {
 
-			if rand.Intn(100) < errorsPercentageValue {
-				requestErrorsCount.Inc()
-			}
+		// Observe a request that took a random amount of time between (0,
+		// N) seconds. The default for N is 10s, which fits the highest
+		// bucket defined by default by a Prometheus histogram.
 
-			// Simulate the configured request rate.
+		requestDuration.Observe(float64(rand.Intn(config.MaxDuration())))
 
-			time.Sleep(time.Duration(float64(time.Second) / float64(requestRateValue)))
+		// Simulate the failure of a certain percentage of the requests.
+
+		if rand.Intn(100) < config.ErrorsPercentage() {
+			requestErrorsCount.Inc()
 		}
-	}()
 
-	http.HandleFunc("/limits", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPatch {
+		// Simulate the configured request rate.
+
+		select {
+		case <-time.After(time.Duration(float64(time.Second) / float64(config.RequestRate()))):
+			continue
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
+func healthHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+		return
+	}
+
+	fmt.Fprintln(w, "OK")
+}
+
+func setConfigHandler(set func(int) error) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
 			http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 			return
 		}
 
-		if err := r.ParseMultipartForm(32 << 20); err != nil {
-			log.Printf("error: parse form: %v", err)
-			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
-			return
-		}
-
-		maxDurationValue, hasMaxDurationValue, err := intValue(r, "maxDuration")
+		data, err := io.ReadAll(r.Body)
 		if err != nil {
-			log.Printf("error: parse max duration: %v", err)
-			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
-			return
-		}
-		if hasMaxDurationValue && maxDurationValue <= 0 {
-			log.Printf("error: invalid max duration '%v'", maxDurationValue)
-			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 			return
 		}
 
-		errorsPercentageValue, hasErrorsPercentageValue, err := intValue(r, "errorsPercentage")
+		value, err := strconv.Atoi(string(data))
 		if err != nil {
-			log.Printf("error: parse errors percentage: %v", err)
-			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
-			return
-		}
-		if hasErrorsPercentageValue && (errorsPercentageValue < 0 || errorsPercentageValue > 100) {
-			log.Printf("error: invalid errors percentage '%v'", errorsPercentageValue)
 			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 			return
 		}
 
-		requestRateValue, hasRequestRateValue, err := intValue(r, "requestRate")
-		if err != nil {
-			log.Printf("error: parse request rate value: %v", err)
-			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
-			return
-		}
-		if hasRequestRateValue && requestRateValue <= 0 {
-			log.Printf("error: invalid request rate value '%v'", requestRateValue)
+		if err := set(value); err != nil {
 			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 			return
 		}
 
-		mu.Lock()
-
-		if hasMaxDurationValue {
-			log.Printf("setting max duration to %v", maxDurationValue)
-			maxDuration = maxDurationValue
-		}
-
-		if hasErrorsPercentageValue {
-			log.Printf("setting errors percentage to %v", errorsPercentageValue)
-			errorsPercentage = errorsPercentageValue
-		}
-
-		if hasRequestRateValue {
-			log.Printf("setting request rate to %v", requestRateValue)
-			requestRate = requestRateValue
-		}
-
-		mu.Unlock()
-	})
-
-	http.Handle("/metrics", promhttp.Handler())
-
-	log.Fatal(http.ListenAndServe(":8080", nil))
+		fmt.Fprintln(w, "OK")
+	}
 }
 
-func intValue(r *http.Request, name string) (int, bool, error) {
-	if _, ok := r.PostForm[name]; !ok {
-		return 0, false, nil
-	}
+type config struct {
+	mu               sync.RWMutex
+	maxDuration      int
+	errorsPercentage int
+	requestRate      int
+}
 
-	v, err := strconv.ParseInt(r.PostForm.Get(name), 10, 64)
-	if err != nil {
-		return 0, false, err
-	}
+func (c *config) MaxDuration() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.maxDuration
+}
 
-	return int(v), true, nil
+func (c *config) SetMaxDuration(maxDuration int) error {
+	if maxDuration < 0 {
+		return fmt.Errorf("value is less than zero")
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.maxDuration = maxDuration
+	return nil
+}
+
+func (c *config) ErrorsPercentage() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.errorsPercentage
+}
+
+func (c *config) SetErrorsPercentage(errorsPercentage int) error {
+	if errorsPercentage < 0 || errorsPercentage > 100 {
+		return fmt.Errorf("value is not a valid percentage")
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.errorsPercentage = errorsPercentage
+	return nil
+}
+
+func (c *config) RequestRate() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.requestRate
+}
+
+func (c *config) SetRequestRate(requestRate int) error {
+	if requestRate <= 0 {
+		return fmt.Errorf("value is less than or equal to zeros")
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.requestRate = requestRate
+	return nil
 }

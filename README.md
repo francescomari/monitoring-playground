@@ -46,26 +46,30 @@ requests and exposes two metrics related to these requests:
 - `app_request_errors_count` - counter - The number of requests resulting in an
   error.
 
-By default, the sample application will randomly observe a request duration
-between 0s and 10s and will simulate a failure of 10% of the requests. Moreover,
-the initial request rate is 1 request/s. These limits can be changed at runtime
-using `curl`.
+### CLI
 
-    curl -X PATCH localhost:8080/limits -F maxDuration=20 -F errorsPercentage=50 -F requestRate=2
+The sample application accepts flags to initialize the rate of the simulated
+request, the maximum request duration and the percentage of requests that will
+result in an error. Use the `-help` flag to see the command's help.
 
-The request above will instruct the sample application to observe a request
-duration between 0s and 20s, and to simulate a failure of 50% of the requests.
-The service is also instructed to pretend it's receiving requests with a rate of
-2 requests/s.
+### API
 
-`maxDuration`, `errorsRatio`, and `requestRate` must be integer numbers.
-`maxDuration` must be greater than or equal to zero. `errorsPercentage` must be
-a number between 0 and 100, inclusive. `requestRate` must be strictly greater
-than or equal to zero. You can specify every parameter at once, none, or any
-combination of them. If specified, the parameters must be valid.
+  GET /-/health
 
-If the limits are valid, they are immediately applied. In this case, the sample
-application returns a 200 response and prints a log message, which will be
-visible in the output of Docker Compose. If the request is not valid or any
-error occurs while processing the request, the sample application returns a
-4xx or 5xx response and prints an error message in its logs.
+Always return a 200 response.
+
+  PUT /-/config/max-duration
+
+Set the maximum duration of the simulated requests to the value passed in the
+body of the request. The value must be a  positive integer.
+
+  PUT /-/config/errors-percentage
+
+Set the percentage of the simulated requests that will result in an error to the
+value passed in the body of the request. It must be an integer between 0 and
+100.
+
+  PUT /-/config/request-rate
+
+Set the rate of the simulated requests to the value passed in the body of the
+request. It must be a strictly positive integer.
