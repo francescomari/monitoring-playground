@@ -27,14 +27,14 @@ func main() {
 	})
 
 	var (
-		mu          sync.RWMutex
-		maxDuration = 10.0
-		errorsRatio = 0.1
-		requestRate = 1.0
+		mu               sync.RWMutex
+		maxDuration      = 10
+		errorsPercentage = 10
+		requestRate      = 1
 	)
 
 	log.Printf("using max duration %v", maxDuration)
-	log.Printf("using errors ratio %v", errorsRatio)
+	log.Printf("using errors percentage %v", errorsPercentage)
 	log.Printf("using request rate %v", requestRate)
 
 	go func() {
@@ -42,7 +42,7 @@ func main() {
 			mu.RLock()
 
 			maxDurationValue := maxDuration
-			errorsRatioValue := errorsRatio
+			errorsPercentageValue := errorsPercentage
 			requestRateValue := requestRate
 
 			mu.RUnlock()
@@ -51,17 +51,17 @@ func main() {
 			// N) seconds. The default for N is 10s, which fits the highest
 			// bucket defined by default by a Prometheus histogram.
 
-			requestDuration.Observe(rand.Float64() * maxDurationValue)
+			requestDuration.Observe(float64(rand.Intn(maxDurationValue)))
 
 			// Simulate the failure of a certain percentage of the requests.
 
-			if rand.Float64() < errorsRatioValue {
+			if rand.Intn(100) < errorsPercentageValue {
 				requestErrorsCount.Inc()
 			}
 
 			// Simulate the configured request rate.
 
-			time.Sleep(time.Duration(float64(time.Second) / requestRateValue))
+			time.Sleep(time.Duration(float64(time.Second) / float64(requestRateValue)))
 		}
 	}()
 
@@ -77,7 +77,7 @@ func main() {
 			return
 		}
 
-		maxDurationValue, hasMaxDurationValue, err := floatValue(r, "maxDuration")
+		maxDurationValue, hasMaxDurationValue, err := intValue(r, "maxDuration")
 		if err != nil {
 			log.Printf("error: parse max duration: %v", err)
 			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
@@ -89,19 +89,19 @@ func main() {
 			return
 		}
 
-		errorsRatioValue, hasErrorsRatioValue, err := floatValue(r, "errorsRatio")
+		errorsPercentageValue, hasErrorsPercentageValue, err := intValue(r, "errorsPercentage")
 		if err != nil {
-			log.Printf("error: parse errors ratio: %v", err)
+			log.Printf("error: parse errors percentage: %v", err)
 			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 			return
 		}
-		if hasErrorsRatioValue && (errorsRatioValue < 0 || errorsRatioValue > 1) {
-			log.Printf("error: invalid errors ratio '%v'", errorsRatioValue)
+		if hasErrorsPercentageValue && (errorsPercentageValue < 0 || errorsPercentageValue > 100) {
+			log.Printf("error: invalid errors percentage '%v'", errorsPercentageValue)
 			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 			return
 		}
 
-		requestRateValue, hasRequestRateValue, err := floatValue(r, "requestRate")
+		requestRateValue, hasRequestRateValue, err := intValue(r, "requestRate")
 		if err != nil {
 			log.Printf("error: parse request rate value: %v", err)
 			http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
@@ -120,9 +120,9 @@ func main() {
 			maxDuration = maxDurationValue
 		}
 
-		if hasErrorsRatioValue {
-			log.Printf("setting errors ratio to %v", errorsRatioValue)
-			errorsRatio = errorsRatioValue
+		if hasErrorsPercentageValue {
+			log.Printf("setting errors percentage to %v", errorsPercentageValue)
+			errorsPercentage = errorsPercentageValue
 		}
 
 		if hasRequestRateValue {
@@ -138,15 +138,15 @@ func main() {
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
-func floatValue(r *http.Request, name string) (float64, bool, error) {
+func intValue(r *http.Request, name string) (int, bool, error) {
 	if _, ok := r.PostForm[name]; !ok {
 		return 0, false, nil
 	}
 
-	v, err := strconv.ParseFloat(r.PostForm.Get(name), 64)
+	v, err := strconv.ParseInt(r.PostForm.Get(name), 10, 64)
 	if err != nil {
 		return 0, false, err
 	}
 
-	return v, true, nil
+	return int(v), true, nil
 }

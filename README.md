@@ -47,22 +47,22 @@ requests and exposes two metrics related to these requests:
   error.
 
 By default, the sample application will randomly observe a request duration
-between 0s and 10s and will simulate 0.1 errors/request. Moreover, the initial
-request rate is 1 request/s. These limits can be changed at runtime using
-`curl`.
+between 0s and 10s and will simulate a failure of 10% of the requests. Moreover,
+the initial request rate is 1 request/s. These limits can be changed at runtime
+using `curl`.
 
-    curl -X PATCH localhost:8080/limits -F maxDuration=20.0 -F errorsRatio=0.5 -F requestRate=1.5
+    curl -X PATCH localhost:8080/limits -F maxDuration=20 -F errorsPercentage=50 -F requestRate=2
 
 The request above will instruct the sample application to observe a request
-duration between 0s and 20s, and to simulate 0.5 errors/request. The service is
-also instructed to pretend it's receiving requests with a rate of 1.5
-requests/s.
+duration between 0s and 20s, and to simulate a failure of 50% of the requests.
+The service is also instructed to pretend it's receiving requests with a rate of
+2 requests/s.
 
-`maxDuration`, `errorsRatio`, and `requestRate` must be floating point numbers.
-`maxDuration` must be a number greater than or equal to zero. `errorsRatio` must
-be a number between 0 and 1, inclusive. `requestRate` must be strictly greater
-than zero. You can specify every parameter at once, none, or any combination of
-them. If specified, the parameters must be valid.
+`maxDuration`, `errorsRatio`, and `requestRate` must be integer numbers.
+`maxDuration` must be greater than or equal to zero. `errorsPercentage` must be
+a number between 0 and 100, inclusive. `requestRate` must be strictly greater
+than or equal to zero. You can specify every parameter at once, none, or any
+combination of them. If specified, the parameters must be valid.
 
 If the limits are valid, they are immediately applied. In this case, the sample
 application returns a 200 response and prints a log message, which will be
