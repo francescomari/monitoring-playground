@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"log"
 	"math/rand"
 	"net/http"
@@ -13,25 +14,42 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
+var requestDuration = promauto.NewHistogram(prometheus.HistogramOpts{
+	Name: "app_request_duration_seconds",
+	Help: "Request duration in seconds",
+})
+
+var requestErrorsCount = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "app_request_errors_count",
+	Help: "Number of errors observed in requests",
+})
+
 func main() {
 	rand.Seed(time.Now().Unix())
 
-	requestDuration := promauto.NewHistogram(prometheus.HistogramOpts{
-		Name: "app_request_duration_seconds",
-		Help: "Request duration in seconds",
-	})
-
-	requestErrorsCount := promauto.NewCounter(prometheus.CounterOpts{
-		Name: "app_request_errors_count",
-		Help: "Number of errors observed in requests",
-	})
-
 	var (
 		mu               sync.RWMutex
-		maxDuration      = 10
-		errorsPercentage = 10
-		requestRate      = 1
+		maxDuration      int
+		errorsPercentage int
+		requestRate      int
 	)
+
+	flag.IntVar(&maxDuration, "max-duration", 10, "Max duration of the simulated requests")
+	flag.IntVar(&errorsPercentage, "errors-percentage", 10, "Which percentage of the requests will fail")
+	flag.IntVar(&requestRate, "request-rate", 1, "How many requests per seconds to simulate")
+	flag.Parse()
+
+	if maxDuration <= 0 {
+		log.Fatalf("invalid max duration %v", maxDuration)
+	}
+
+	if errorsPercentage < 0 || errorsPercentage > 100 {
+		log.Fatalf("invalid errors percentage %v", errorsPercentage)
+	}
+
+	if requestRate <= 0 {
+		log.Fatalf("invalid request rate %v", requestRate)
+	}
 
 	log.Printf("using max duration %v", maxDuration)
 	log.Printf("using errors percentage %v", errorsPercentage)
