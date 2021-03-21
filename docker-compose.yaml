@@ -23,8 +23,8 @@ services:
       - "3000:3000"
     volumes:
       - "./grafana:/etc/grafana"
-  app:
-    build: "."
+  metrics_generator:
+    image: "francescomari/metrics-generator:0.1.0"
     ports:
       - "8080:8080"
     command:
