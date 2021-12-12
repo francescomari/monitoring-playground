@@ -24,13 +24,6 @@ services:
     volumes:
       - "./grafana:/etc/grafana"
   metrics_generator:
-    image: "francescomari/metrics-generator:0.1.0"
+    image: "francescomari/metrics-generator:0.2.0"
     ports:
       - "8080:8080"
-    command:
-      - "-request-rate"
-      - "1"
-      - "-max-duration"
-      - "10"
-      - "-errors-percentage"
-      - "10"
