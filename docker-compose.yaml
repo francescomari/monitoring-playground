@@ -2,7 +2,7 @@ version: "3.9"
 
 services:
   prometheus:
-    image: "prom/prometheus:v2.31.1"
+    image: "prom/prometheus:v2.45.0"
     command:
       - "--config.file"
       - "/etc/prometheus/config.yaml"
